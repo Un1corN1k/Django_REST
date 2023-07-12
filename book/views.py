@@ -1,13 +1,24 @@
 from rest_framework import generics, viewsets
-from .models import Author, Book
-from .serializers import AuthorSerializer, BookSerializer
+from rest_framework.views import APIView
+from .models import Author, Book, Purchase, Return
+from .filters import PurchaseFilter
+from .serializers import AuthorSerializer, BookSerializer, PurchaseSerializer, ReturnSerializer
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework_simplejwt.tokens import RefreshToken
 
 
-class AuthorListCreateView(generics.ListCreateAPIView):
-    queryset = Author.objects.all()
-    serializer_class = AuthorSerializer
+class AuthorListCreateView(APIView):
+    def post(self, request, *args, **kwargs):
+        serializer = AuthorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        author = serializer.save()
+        refresh = RefreshToken.for_user(author)
+        return Response({
+            'refresh': str(refresh),
+            'access': str(refresh.access_token)
+        })
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -52,3 +63,29 @@ class AuthorViewSet(viewsets.ModelViewSet):
         author = self.get_object()
         book_ids = author.book_set.values_list('id', flat=True)
         return Response({'books': book_ids})
+
+
+class PurchaseViewSet(viewsets.ModelViewSet):
+    queryset = Purchase.objects.all()
+    serializer_class = PurchaseSerializer
+    filterset_class = PurchaseFilter
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_authenticated and not user.is_superuser:
+            return Purchase.objects.filter(user=user)
+        else:
+            return super().get_queryset()
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminUser()]
+        else:
+            return []
+
+
+class ReturnViewSet(viewsets.ModelViewSet):
+    queryset = Return.objects.all()
+    serializer_class = ReturnSerializer
